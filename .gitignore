@@ -1,0 +1,34 @@
+# Datos y artefactos pesados (viven fuera del repo)
+data/
+*.dcm
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+checkpoints/
+runs/
+mlruns/
+mlflow_artifacts/
+*.db
+
+# Logs de SLURM
+*.out
+*.err
+*.log
+logs/
+
+# Python / Jupyter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# Sistema / editores
+.DS_Store
+.vscode/
+.idea/
