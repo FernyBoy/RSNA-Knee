@@ -1,0 +1,48 @@
+{
+  "permissions": {
+    "defaultMode": "default",
+    "allow": [
+      "Bash(ssh yuca squeue:*)",
+      "Bash(ssh yuca sacct:*)",
+      "Bash(ssh yuca sinfo:*)",
+      "Bash(ssh yuca hostname)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push)",
+      "Bash(git push origin:*)"
+    ],
+    "deny": [
+      "Read(**/.ssh/**)",
+      "Read(**/kaggle.json)",
+      "Read(**/.claude/.credentials*)",
+      "Edit(.claude/**)",
+      "Write(.claude/**)",
+      "Bash(sudo:*)",
+      "Bash(rm -rf:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(scancel -u:*)"
+    ]
+  },
+  "disableAllHooks": false,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell|Write|Edit|MultiEdit|NotebookEdit|Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/guard_hook.py"],
+            "timeout": 20,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ]
+  }
+}
