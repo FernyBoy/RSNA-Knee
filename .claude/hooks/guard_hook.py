@@ -120,6 +120,219 @@ def tokenize(segment: str) -> list[str]:
     return cleaned.split()
 
 
+# --------------------------------------------------------------------------- #
+# Análisis con comillas
+# --------------------------------------------------------------------------- #
+# `split_segments`/`tokenize` ignoran las comillas a propósito: es lo más
+# conservador, porque todo texto se trata como posible comando. El costo son
+# falsos positivos cuando el texto entre comillas es solo un dato, p. ej.
+# `grep -n "srun\|sbatch" f`, que se partía en `| sbatch f` y se revisaba como
+# un envío de job. Por eso el análisis primero divide respetando comillas, y
+# solo los verbos de DATA_VERBS (que nunca ejecutan sus argumentos) reciben
+# sus argumentos entre comillas como datos inertes. Cualquier otro verbo
+# (python -c, find -exec, awk, sed, xargs, sbatch --wrap...) se sigue
+# revisando con el análisis ingenuo de siempre.
+DATA_VERBS = {
+    "grep", "egrep", "fgrep", "zgrep", "rg", "ag", "ack",
+    "echo", "printf", "cat", "head", "tail", "less", "more", "wc", "ls", "file", "stat",
+    "squeue", "sacct", "sinfo", "sshare", "sprio", "seff",
+    "test", "[", "[[",
+}
+SHELLS = ("bash", "sh", "zsh", "dash")
+
+
+class _Unbalanced(Exception):
+    pass
+
+
+def _find_close(s: str, start: int, opener: str = "(", closer: str = ")") -> int:
+    """Índice del cierre que balancea `opener` desde `start` (respeta comillas)."""
+    depth, q, j = 1, None, start
+    while j < len(s):
+        c = s[j]
+        if q:
+            if c == "\\" and q == '"':
+                j += 2
+                continue
+            if c == q:
+                q = None
+        elif c in "'\"":
+            q = c
+        elif c == "\\":
+            j += 2
+            continue
+        elif c == opener:
+            depth += 1
+        elif c == closer:
+            depth -= 1
+            if depth == 0:
+                return j
+        j += 1
+    return len(s)  # sin cerrar: tomar el resto (conservador)
+
+
+def _find_backtick(s: str, start: int) -> int:
+    j = start
+    while j < len(s):
+        if s[j] == "\\":
+            j += 2
+            continue
+        if s[j] == "`":
+            return j
+        j += 1
+    return len(s)
+
+
+def qsplit(cmd: str) -> list[str]:
+    """Como `split_segments`, pero solo divide en operadores fuera de comillas.
+
+    Las sustituciones `$(...)`, `` `...` `` y `<(...)` se extraen (fuera de
+    comillas o dentro de comillas dobles, donde el shell sí las ejecuta) y se
+    devuelven como segmentos adicionales. Lanza _Unbalanced si queda una
+    comilla abierta."""
+    segs: list[str] = []
+    extra: list[str] = []
+    buf: list[str] = []
+    q = None
+    i, n = 0, len(cmd)
+
+    def flush() -> None:
+        s = "".join(buf)
+        if s.strip():
+            segs.append(s)
+        buf.clear()
+
+    while i < n:
+        c = cmd[i]
+        two = cmd[i:i + 2]
+        if q == "'":
+            buf.append(c)
+            if c == "'":
+                q = None
+            i += 1
+            continue
+        if c == "\\" and i + 1 < n:
+            buf.append(cmd[i:i + 2])
+            i += 2
+            continue
+        if two == "$(" or (q is None and two in ("<(", ">(")):
+            end = _find_close(cmd, i + 2)
+            extra.extend(qsplit(cmd[i + 2:end]))
+            buf.append("__SUBST__")
+            i = end + 1
+            continue
+        if c == "`":
+            end = _find_backtick(cmd, i + 1)
+            extra.extend(qsplit(cmd[i + 1:end]))
+            buf.append("__SUBST__")
+            i = end + 1
+            continue
+        if q == '"':
+            buf.append(c)
+            if c == '"':
+                q = None
+            i += 1
+            continue
+        # Fuera de comillas.
+        if c in "'\"":
+            q = c
+            buf.append(c)
+            i += 1
+        elif two in ("||", "&&"):
+            flush()
+            i += 2
+        elif c in ";|\n()":
+            flush()
+            i += 1
+        elif c == "&" and not (i > 0 and cmd[i - 1] in ">&<0123456789") and two not in ("&>",) \
+                and not (i + 1 < n and cmd[i + 1] == "&"):
+            flush()
+            i += 1
+        else:
+            buf.append(c)
+            i += 1
+    if q:
+        raise _Unbalanced(cmd)
+    flush()
+    return segs + extra
+
+
+def qtokenize(segment: str) -> list[str]:
+    """Divide en palabras respetando comillas y quitándolas. Las barras
+    invertidas se conservan (rutas de Windows) salvo las que escapan comillas."""
+    out: list[str] = []
+    cur: list[str] = []
+    has = False
+    q = None
+    i, n = 0, len(segment)
+    while i < n:
+        c = segment[i]
+        if q == "'":
+            if c == "'":
+                q = None
+            else:
+                cur.append(c)
+        elif q == '"':
+            if c == "\\" and i + 1 < n and segment[i + 1] in '"\\$`':
+                cur.append(segment[i + 1])
+                i += 1
+            elif c == '"':
+                q = None
+            else:
+                cur.append(c)
+        elif c in "'\"":
+            q = c
+            has = True
+        elif c == "\\" and i + 1 < n and segment[i + 1] in "'\" ":
+            cur.append(segment[i + 1])
+            has = True
+            i += 1
+        elif c.isspace():
+            if cur or has:
+                out.append("".join(cur))
+            cur, has = [], False
+        else:
+            cur.append(c)
+        i += 1
+    if cur or has:
+        out.append("".join(cur))
+    return out
+
+
+def analyze_command(cmd: str, v: "Verdict", remote: bool, under_job: bool, cwd: str, depth: int = 0) -> bool:
+    """Analiza una línea de comandos completa. Devuelve True si quedó en modo remoto."""
+    if depth > 4:
+        return remote
+    try:
+        segments = qsplit(cmd)
+    except _Unbalanced:
+        # Comillas desbalanceadas: no adivinar, volver al análisis ingenuo.
+        for seg in split_segments(cmd):
+            remote = analyze_tokens(tokenize(seg), v, remote, under_job, cwd, depth) or remote
+        return remote
+    for seg in segments:
+        toks = strip_wrappers(qtokenize(seg))
+        if not toks:
+            continue
+        verb = toks[0].split("/")[-1].split("\\")[-1]
+        args = toks[1:]
+        if verb == "ssh":
+            rest, _ = check_ssh(toks, v)
+            if rest:
+                analyze_command(" ".join(rest), v, True, under_job, cwd, depth + 1)
+            remote = True
+        elif verb in SHELLS and "-c" in args:
+            inner = " ".join(args[args.index("-c") + 1:])
+            analyze_command(inner, v, remote, under_job, cwd, depth + 1)
+        elif verb in DATA_VERBS or (verb == "git" and not (args and args[0].startswith("-c"))):
+            # Los argumentos entre comillas son datos (patrones, mensajes): no se re-dividen.
+            remote = analyze_tokens(toks, v, remote, under_job, cwd, depth) or remote
+        else:
+            for sub in split_segments(seg):
+                remote = analyze_tokens(tokenize(sub), v, remote, under_job, cwd, depth) or remote
+    return remote
+
+
 def strip_wrappers(tokens: list[str]) -> list[str]:
     """Quita asignaciones VAR=x y envoltorios como `env`, `nice -n 5`, `timeout 60`."""
     i = 0
@@ -651,9 +864,7 @@ def analyze_bash(cmd: str, cwd: str) -> Verdict:
             v.d("Escritura después de `cd` a kaggle_data (solo lectura)." + NO_EVADE)
         elif writes and is_foreign(dest):
             v.d("Escritura después de `cd` a directorios de otra persona." + NO_EVADE)
-    remote = False
-    for seg in split_segments(cmd):
-        remote = analyze_tokens(tokenize(seg), v, remote, False, cwd) or remote
+    analyze_command(cmd, v, False, False, cwd)
     return v
 
 

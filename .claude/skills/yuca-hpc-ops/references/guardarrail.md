@@ -59,6 +59,12 @@ Con eso, `rm` y `mv` dentro del dataset fallan con "Permission denied" aunque el
 
 Lo más robusto: pedir a ACARUS que el dueño del dataset sea un usuario de servicio o `root`, con grupo `p082` de solo lectura. Así ni Owen ni el agente pueden borrarlo por accidente.
 
+## Cómo lee los comandos (y falsos positivos)
+
+El hook divide la línea en subcomandos respetando comillas. El texto entre comillas solo se trata como dato inerte cuando el verbo nunca ejecuta sus argumentos (`grep`, `rg`, `echo`, `cat`, `squeue`, `sacct`, `git` sin `-c`…; lista completa en `DATA_VERBS` de `guard_hook.py`). Así, `grep -n "srun\|sbatch" README.md` o `git commit -m "arregla sbatch"` ya no se confunden con envíos de job. Para cualquier otro verbo (`python -c`, `find -exec`, `awk`, `sed`, `xargs`, `sbatch --wrap`…) el texto entre comillas se sigue revisando como si fuera comando, igual que antes, y `$(...)`/`` `...` `` se revisan siempre, también dentro de comillas dobles. Si una comilla queda sin cerrar, el hook vuelve al análisis más conservador.
+
+Si aparece otro falso positivo: agrega el caso a `scripts/test_guard.py` como `none`, ajusta el hook en la copia de la skill, corre las pruebas y vuelve a copiar `guard_hook.py` a `.claude/hooks/` a mano (el agente no puede editar esa carpeta).
+
 ## Qué no cubre
 
 - **Comandos ofuscados** (variables que arman rutas, scripts generados al vuelo y luego ejecutados): el hook ve el texto, no lo que pasará. Por eso la regla de "no reformular para esquivar" vive en la skill y la capa 3 existe.

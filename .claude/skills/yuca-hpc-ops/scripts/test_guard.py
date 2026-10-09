@@ -28,6 +28,7 @@ Path(_tmp, "jobs", "bad.slurm").write_text("""#!/bin/bash
 python train.py --out /lustre/proyectos/p082/kaggle_data/out
 rm -rf /lustre/proyectos/p082/runs
 """, encoding="utf-8")
+Path(_tmp, "README.md").write_text("Envía con sbatch jobs/ok.slurm\n", encoding="utf-8")
 K = "/lustre/proyectos/p082/kaggle_data"
 cases = [
  # (expected, tool, input)
@@ -129,6 +130,22 @@ cases = [
  ("none","Write",{"file_path":"/home/x/p082-code/src/model.py","content":"x"}),
  ("none","Read",{"file_path":"/home/x/p082-code/src/model.py"}),
  ("none","Bash","ssh yuca 'grep -c , /lustre/proyectos/p082/kaggle_data/competitions/rsna-knee-abnormality-detection/train.csv'"),
+ # Texto entre comillas que solo es un dato (patrón de grep, mensaje de commit):
+ # no debe revisarse como comando. Antes `"srun\|sbatch"` se partía en `| sbatch`.
+ ("none","Bash",'grep -n "srun\\|sbatch" README.md'),
+ ("none","Bash",'grep -nE "sbatch|srun|scancel" README.md jobs/bad.slurm'),
+ ("none","Bash","ssh yuca 'grep -rn \"sbatch\\|squeue\" /lustre/proyectos/p082/code/jobs'"),
+ ("none","Bash",'grep -n "(sbatch" README.md'),
+ ("none","Bash",'git commit -m "docs: explica sbatch | srun; no usar rm -rf"'),
+ ("none","Bash","ssh yuca 'squeue -u owen --format=\"%i|%j|%T\"'"),
+ # ...pero las mismas palabras fuera de comillas, o en sustituciones, sí se revisan.
+ ("deny","Bash","grep -c sbatch README.md; sbatch jobs/bad.slurm"),
+ ("deny","Bash","ssh yuca 'grep -c sbatch f; scancel -u owen'"),
+ ("deny","Bash",f'grep "$(rm -rf {K})" README.md'),
+ ("deny","Bash","echo `sudo ls`"),
+ ("deny","Bash",f"python -c 'import os; os.system(\"rm -rf {K}\")'"),
+ ("deny","Bash",'echo "comilla sin cerrar | sudo ls'),
+ ("deny","Bash",f"grep -rn 'x' {K}"),
 ]
 fails = 0
 for exp, tool, inp in cases:
