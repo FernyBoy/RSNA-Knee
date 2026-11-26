@@ -27,4 +27,10 @@ Puntuación del envío final (pública y privada, si la hay), lugar en la tabla 
 8. Equipo y uso de IA. 
 Qué hizo cada integrante y para qué usaron asistentes de IA.
 
+Uso de IA:
+- `datos/descargar.py`: Angel Fernando Bórquez Guerrero usó Claude Code (Claude Opus 5.5), que creó el archivo a partir del fragmento de `kagglehub` que proporciona Kaggle; agregó la función `main()` y el docstring con los requisitos de uso.
+- Archivos DICOM: Angel Alberto Amaya Soria usó Claude Code (Claude Opus 5.5) para obtener una explicación de qué son los archivos DICOM (imagen y metadatos), cómo se organizan en estudios, series e instancias en los datos de la competencia y qué implica eso para el proyecto.
+- Estructura de los datos: Angel Fernando Bórquez Guerrero usó Claude Code (Claude Opus 5.5) para entender mejor cómo se distribuyen los estudios, las series y los archivos DICOM (qué es una rebanada o *slice*, qué identifica cada UID y la relación entre visita, secuencias y cortes).
+- Declaración de uso de IA: Angel Fernando Bórquez Guerrero usó Claude Code (Claude Opus 5.5) para redactar y agregar las entradas de esta lista.
+
 9. Cómo reproducirlo. Los comandos, en orden, para pasar de un repositorio recién clonado al archivo submission.csv.
