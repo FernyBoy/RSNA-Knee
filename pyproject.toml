@@ -6,9 +6,17 @@ readme = "README.md"
 authors = [
     { name = "Fernando Borquez", email = "fernandoborquez215@gmail.com" }
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
+    "catppuccin>=3.0.0",
+    "catppuccin-matplotlib>=0.5",
     "kagglehub>=0.3.13",
+    "lingua-language-detector>=2.1.1",
+    "matplotlib<3.9",
+    "numpy>=2.0.2",
+    "pandas>=3.1.1",
+    "pydicom>=2.4.4",
+    "vllm>=0.5.0.post1",
 ]
 
 [project.scripts]
